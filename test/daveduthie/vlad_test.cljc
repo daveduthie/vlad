@@ -48,9 +48,9 @@
         data               {:k {:some-key   "25"
                                 :some-other {:key "75"}}
                             :x {:abc 99}}
-        +schema+           {:x {:abc (->> [int-validator example-validator] (ctx [:k]))}
-                            :k (->> {:some-key   [int-validator]
-                                     :some-other {:key [int-validator]}} (ord 0) )}
+        +schema+           {:x {:abc (->> [int-validator example-validator] (ctx [:k]) (ord 1))}
+                            :k {:some-key   [int-validator]
+                                :some-other {:key [int-validator]}}}
         [conformed errors] (validate +schema+ data)]
     (is (= {:x {:abc "Total must be greater than the sum of the others"}}
            errors))))

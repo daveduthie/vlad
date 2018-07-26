@@ -1,11 +1,49 @@
 (ns daveduthie.vlad)
 
 
-(defn pass-thru [val state deps] val)
+;; Produce schemas from nested maps
+;; ================================
+
+
+(defn pass-thru [x & args] x)
 (defn prepend [xs yx] (vec (into yx xs)))
+(defn opt [x] (with-meta x (assoc (meta x) ::opt true)))
+(defn req [x] (with-meta x (assoc (meta x) ::opt false)))
+(defn ord [n x] (with-meta x (assoc (meta x) ::ord n)))
+(defn ctx [ctx x] (with-meta x (update (meta x) ::ctx prepend ctx)))
+(defn idx [xs] (zipmap (range) xs))
 
 
-;; TODO: daveduthie 2018-07-24: allow one-arity predicates
+(def meta-ks [::ord ::opt ::ctx])
+
+
+(defn flatten-map
+  "Converts a nested map into a sequence of pairs `[path value]`.
+  Merges metadata from parents into children (child keys win)."
+  ([m] (flatten-map m [] []))
+  ([m path acc]
+   (reduce (fn [acc [k x]]
+             (let [path+ (conj path k)
+                   x     (with-meta x (merge (select-keys (meta m) meta-ks)
+                                             (meta x)))]
+               (if (map? x)
+                 (flatten-map x path+ acc)
+                 (conj acc [path+ x]))))
+           acc m)))
+
+
+(defn ->flat-schema
+  "Produces a flattened, struct-compatible schema from a nested map."
+  [schema]
+  (->> schema
+       flatten-map
+       (sort-by #(-> % second meta ::ord (or 0)))))
+
+
+;; Validation for flat schemas
+;; ===========================
+
+
 (defn apply-validator
   [state ctx
    {:keys [deps? pred coerce msg opt]
@@ -22,22 +60,21 @@
 
 
 (defn validate-leaf*
-  [value validators state]
+  [value validators conformed]
   (let [ctx (or (::ctx (meta validators)) [])]
-    (cond
-      value      (reduce
-                  (fn [[_ value] validator]
-                    (let [[res data :as result]
-                          (apply-validator state ctx validator value)]
-                      (case res
-                        :ok result
-                        (reduced result))))
-                  [:ok value]
-                  validators)
-      (-> validators
-          meta
-          ::opt) [:none]
-      :else      [:err "Required value"])))
+    (cond value
+          (reduce
+           (fn [[_ value] validator]
+             (let [[res data :as result]
+                   (apply-validator conformed ctx validator value)]
+               (case res
+                 :ok result
+                 (reduced result))))
+           [:ok value]
+           validators)
+
+          (-> validators meta ::opt) [:none]
+          :else                      [:err "Required value"])))
 
 
 (defn validate-leaf
@@ -49,45 +86,13 @@
       :err  [conformed (assoc-in errors path data)])))
 
 
-;; TODO: daveduthie 2018-07-23: Switch to max-ord: more ergonomic
-(defn min-ord [x]
-  (let [mx (or (::ord (meta x)) 1000)]
-    (if-not (map? x)
-      mx
-      (apply min mx (map (comp min-ord val) x)))))
-
-
-(defn traverse
-  ([f schema conformed] (traverse f schema conformed nil []))
-  ([f schema conformed errors path]
-   (reduce (fn [[conformed errors] [k v]]
-             (let [path+ (conj path k)
-                   v     (with-meta v (merge (select-keys (meta schema)
-                                                          [::opt ::ord ::ctx])
-                                             (meta v)))]
-               (if (map? v)
-                 (traverse f v conformed errors path+)
-                 (f v path+ conformed errors))))
-           [conformed errors]
-           (sort-by (comp min-ord val) schema))))
-
-
 (defn validate
+  "`schema -> data -> [conformed errors]`"
   [schema data]
-  (traverse
-   (fn [validators path conformed errors]
-     (validate-leaf (get-in conformed path)
-                    validators
-                    path
-                    conformed
-                    errors))
-   schema
-   data))
+  (reduce
+   (fn [[conformed errors] [path validators]]
+     (let [data-at (get-in conformed path)]
+       (validate-leaf data-at validators path conformed errors)))
+   [data nil]
+   (->flat-schema schema)))
 
-
-(defn opt [x] (with-meta x (assoc (meta x) ::opt true)))
-(defn req [x] (with-meta x (assoc (meta x) ::opt false)))
-(defn ord [n x] (with-meta x (assoc (meta x) ::ord n)))
-(defn ctx [ctx x] (with-meta x (update (meta x) ::ctx prepend ctx)))
-
-(defn idx [xs] (zipmap (range) xs))
