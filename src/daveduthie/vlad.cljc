@@ -10,11 +10,14 @@
 (defn opt [x] (with-meta x (assoc (meta x) ::opt true)))
 (defn req [x] (with-meta x (assoc (meta x) ::opt false)))
 (defn ord [n x] (with-meta x (assoc (meta x) ::ord n)))
-(defn ctx [ctx x] (with-meta x (update (meta x) ::ctx prepend ctx)))
+(defn ctx [ctx x] (with-meta x (assoc (meta x) ::ctx ctx)))
 (defn idx [xs] (zipmap (range) xs))
 
 
 (def meta-ks [::ord ::opt ::ctx])
+(defn mmeta
+  ([x y] (with-meta y (merge (select-keys (meta x) meta-ks) (meta y))))
+  ([x y & more] (reduce mmeta (mmeta x y) more)))
 
 
 (defn flatten-map
@@ -22,14 +25,14 @@
   Merges metadata from parents into children (child keys win)."
   ([m] (flatten-map m [] []))
   ([m path acc]
-   (reduce (fn [acc [k x]]
-             (let [path+ (conj path k)
-                   x     (with-meta x (merge (select-keys (meta m) meta-ks)
-                                             (meta x)))]
-               (if (map? x)
-                 (flatten-map x path+ acc)
-                 (conj acc [path+ x]))))
-           acc m)))
+   (reduce
+    (fn [acc [k x]]
+      (let [path+ (conj path k)]
+        (cond
+          (map? x)    (flatten-map (mmeta m x) path+ acc)
+          (vector? x) (conj acc [path+ (mmeta m x (mapv (partial mmeta m x) x))])
+          :else       (throw (ex-info "Not implemented" {:type (type m)})))))
+    acc m)))
 
 
 (defn ->flat-schema
@@ -45,14 +48,16 @@
 
 
 (defn apply-validator
-  [state ctx
-   {:keys [deps? pred coerce msg opt]
+  [conformed
+   {:as   validator
+    :keys [deps? pred coerce msg opt]
     :or   {coerce identity
            pred   pass-thru}}
    value]
-  (let [coerced (coerce value)
+  (let [ctx     (or (::ctx (meta validator)) [])
+        coerced (coerce value)
         result  (if deps?
-                  (pred coerced state ctx)
+                  (pred coerced (get-in conformed ctx))
                   (pred coerced))]
     (if result
       [:ok coerced]
@@ -61,20 +66,19 @@
 
 (defn validate-leaf*
   [value validators conformed]
-  (let [ctx (or (::ctx (meta validators)) [])]
-    (cond value
-          (reduce
-           (fn [[_ value] validator]
-             (let [[res data :as result]
-                   (apply-validator conformed ctx validator value)]
-               (case res
-                 :ok result
-                 (reduced result))))
-           [:ok value]
-           validators)
+  (cond value
+        (reduce
+         (fn [[_ value] validator]
+           (let [[res data :as result]
+                 (apply-validator conformed validator value)]
+             (case res
+               :ok result
+               (reduced result))))
+         [:ok value]
+         validators)
 
-          (-> validators meta ::opt) [:none]
-          :else                      [:err "Required value"])))
+        (-> validators meta ::opt) [:none]
+        :else                      [:err "Required value"]))
 
 
 (defn validate-leaf

@@ -31,27 +31,35 @@
            errors))))
 
 
-(deftest complex-validator-test
-  (let [example-validator  {:coerce (fn [v]
-                                      (if (int? v) v
-                                          (try (Integer/parseInt v)
-                                               (catch ClassCastException ex)
-                                               (catch NumberFormatException ex))))
-                            :deps?  true
-                            :pred   (fn [total state ctx]
-                                      (let [other-total
-                                            (reduce (fnil + 0 0)
-                                                    (map (fn [path] (get-in state (prepend path ctx)))
-                                                         [[:some-key] [:some-other :key]]))]
-                                        (>= total other-total)))
-                            :msg    "Total must be greater than the sum of the others"}
-        data               {:k {:some-key   "25"
-                                :some-other {:key "75"}}
-                            :x {:abc 99}}
-        +schema+           {:x {:abc (->> [int-validator example-validator] (ctx [:k]) (ord 1))}
-                            :k {:some-key   [int-validator]
-                                :some-other {:key [int-validator]}}}
-        [conformed errors] (validate +schema+ data)]
-    (is (= {:x {:abc "Total must be greater than the sum of the others"}}
-           errors))))
+(deftest ctx-test
+  (let [->int               (fn [v] (if (int? v) v
+                                        (try (Integer/parseInt v)
+                                             (catch ClassCastException ex)
+                                             (catch NumberFormatException ex))))
+        example-validator   {:coerce ->int
+                             :deps?  true
+                             :pred   (fn [total state]
+                                       (let [other-total
+                                             (reduce (fnil + 0 0)
+                                                     (map (fn [path] (get-in state path))
+                                                          [[:some-key] [:some-other :key]]))]
+                                         (>= total other-total)))
+                             :msg    "Total must be greater than the sum of the others"}
+        example-validator-2 {:coerce ->int
+                             :deps?  true
+                             :pred   (fn [total state]
+                                       (let [maximum (get-in state [:d])]
+                                         (<= total maximum)))
+                             :msg    "Total must not exceed the maximum allowed value"}
+        data                {:k {:some-key   "25"
+                                 :some-other {:key "75"}}
+                             :x {:abc "100"
+                                 :d   100}}
+        +schema+            {:x {:abc (ord 1 (ctx [:k] [int-validator
+                                                        example-validator
+                                                        (ctx [:x] example-validator-2)]))}
+                             :k {:some-key   [int-validator]
+                                 :some-other {:key [int-validator]}}}
+        [conformed errors]  (validate +schema+ data)]
+    (is (nil? errors))))
 
