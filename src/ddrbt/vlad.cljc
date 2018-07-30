@@ -1,4 +1,4 @@
-(ns daveduthie.vlad)
+(ns ddrbt.vlad)
 
 
 ;; Produce schemas from nested maps

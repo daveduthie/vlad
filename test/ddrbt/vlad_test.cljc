@@ -1,7 +1,7 @@
-(ns daveduthie.vlad-test
+(ns ddrbt.vlad-test
   (:require [clojure.test :refer :all]
-            [daveduthie.vlad :refer :all]
-            [daveduthie.vlad.validators :refer :all]))
+            [ddrbt.vlad :refer :all]
+            [ddrbt.vlad.validators :refer :all]))
 
 
 (deftest basic-validation-test

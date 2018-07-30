@@ -1,4 +1,4 @@
-(ns daveduthie.vlad.validators)
+(ns ddrbt.vlad.validators)
 
 
 (def int-validator
