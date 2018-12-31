@@ -1,7 +1,10 @@
 (ns ddrbt.vlad-test
-  (:require [clojure.test :refer :all]
-            [ddrbt.vlad :refer :all]
-            [ddrbt.vlad.validators :refer :all]))
+  (:require
+   [clojure.repl :refer :all]
+   [clojure.pprint :refer :all]
+   [clojure.test :refer :all]
+   [ddrbt.vlad :refer :all]
+   [ddrbt.vlad.validators :refer :all]))
 
 
 (deftest basic-validation-test
@@ -63,3 +66,12 @@
         [conformed errors]  (validate +schema+ data)]
     (is (nil? errors))))
 
+
+(def +category+ {:amount  (->> [int-validator] req)
+                 :premium (->> [int-validator] opt)})
+
+(def +cover+ (opt {:critical-illness  +category+
+                   :disability        +category+
+                   :funeral           +category+
+                   :income-protection +category+
+                   :life              +category+}))

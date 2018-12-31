@@ -26,3 +26,10 @@
   [type_]
   {:pred #(= (type %) type_)
    :msg  (str "Must be a " type_)})
+
+{:first-name "Billy"
+ :last-name "Foo"}
+
+(defrecord Person [first-name last-name])
+
+(->Person "John" "Schmidt")

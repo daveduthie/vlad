@@ -1,6 +1,15 @@
 (ns ddrbt.vlad)
 
 
+(def ^:dynamic *mode* :vlad)
+
+(defn ->v
+  [path validators dep]
+  (case *mode*
+    :vlad   [path validators dep]
+    :struct [path validators]))
+
+
 ;; Produce schemas from nested maps
 ;; ================================
 
@@ -23,20 +32,30 @@
 (defn flatten-map
   "Converts a nested map into a sequence of pairs `[path value]`.
   Merges metadata from parents into children (child keys win)."
-  ([m] (flatten-map m [] []))
-  ([m path acc]
+  ([m] (flatten-map m [] [] []))
+  ([m path acc dep]
    (reduce
     (fn [acc [k x]]
-      (let [path+ (conj path k)]
+      (let [path+ (conj path k)
+            dep   (if (::opt (meta m)) path dep)]
         (cond
-          (map? x)    (flatten-map (mmeta m x) path+ acc)
-          (vector? x) (conj acc [path+ (mmeta m x (mapv (partial mmeta m x) x))])
-          :else       (throw (ex-info "Not implemented" {:type (type m)})))))
+          ;;; TODO: daveduthie 2018-07-31: ?
+          (satisfies? Validator x) (conj acc path+ x)
+          (map? x)                 (flatten-map (mmeta m x) path+ acc dep)
+          ;;; TODO: daveduthie 2018-07-31: ?
+          (vector? x)              (conj acc
+                                         (->v path+
+                                              (mmeta m x (mapv (partial mmeta m x) x))
+                                              dep))
+          :else                    (throw (ex-info "Not implemented" {:type (type m)})))))
     acc m)))
+
+#_
+(flatten-map )
 
 
 (defn ->flat-schema
-  "Produces a flattened, struct-compatible schema from a nested map."
+  "Produces a flattened schema from a nested map."
   [schema]
   (->> schema
        flatten-map
@@ -64,26 +83,33 @@
       [:err msg])))
 
 
+(defn off-the-hook?
+  [validators dep conformed]
+  (boolean
+   (or (-> validators meta ::opt)
+       (nil? (get-in conformed dep)))))
+
+
 (defn validate-leaf*
-  [value validators conformed]
-  (cond value
+  [data validators dep conformed]
+  (cond data
         (reduce
-         (fn [[_ value] validator]
+         (fn [[_ data] validator]
            (let [[res data :as result]
-                 (apply-validator conformed validator value)]
+                 (apply-validator conformed validator data)]
              (case res
                :ok result
                (reduced result))))
-         [:ok value]
+         [:ok data]
          validators)
 
-        (-> validators meta ::opt) [:none]
-        :else                      [:err "Required value"]))
+        (off-the-hook? validators dep conformed) [:none]
+        :else                                    [:err "Required value"]))
 
 
 (defn validate-leaf
-  [value validators path conformed errors]
-  (let [[res data] (validate-leaf* value validators conformed)]
+  [data path validators dep conformed errors]
+  (let [[res data] (validate-leaf* data validators dep conformed)]
     (case res
       :none [conformed errors]
       :ok   [(assoc-in conformed path data) errors]
@@ -94,9 +120,7 @@
   "`schema -> data -> [conformed errors]`"
   [schema data]
   (reduce
-   (fn [[conformed errors] [path validators]]
-     (let [data-at (get-in conformed path)]
-       (validate-leaf data-at validators path conformed errors)))
+   (fn [[conformed errors] vlad]
+     (validate vlad conformed errors))
    [data nil]
    (->flat-schema schema)))
-
